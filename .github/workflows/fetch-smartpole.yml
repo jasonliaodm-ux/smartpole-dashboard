@@ -1,12 +1,16 @@
 name: 抓取智慧桿空品資料
 
+# GitHub 的定時排程常延遲甚至不觸發，所以改成：
+# 一次執行持續約 5 小時 40 分，每 2 分鐘抓一次；結束前自動觸發下一輪，接力不中斷。
+# 排程只當備援：接力萬一斷掉，排程觸發時會重新接上。
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: fetch-smartpole
@@ -15,28 +19,43 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 355
     steps:
-      - name: 下載 API
+      - name: 每 2 分鐘抓取並更新 data 分支
+        env:
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
         run: |
-          mkdir -p out
-          curl -fsS --retry 3 --max-time 30 \
-            -H 'Accept: application/json' \
-            'https://www.hsinchuiot.org/core/share/realtimelatest/SmartPole' -o out/raw.json
-          python3 - <<'PY'
-          import json, datetime
-          data = json.load(open('out/raw.json', encoding='utf-8'))
-          assert isinstance(data, list) and data, 'empty response'
-          out = {'fetchedAt': datetime.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z', 'data': data}
-          json.dump(out, open('out/smartpole.json', 'w', encoding='utf-8'), ensure_ascii=False)
-          PY
-          rm out/raw.json
-      - name: 推到 data 分支（只保留最新一筆，不累積歷史）
-        run: |
-          cd out
+          mkdir -p out && cd out
           git init -q -b data
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add smartpole.json
-          git commit -q -m "update $(date -u +%FT%TZ)"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+          end=$(( $(date +%s) + 340*60 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            if curl -fsS --retry 2 --max-time 30 -H 'Accept: application/json' \
+                 'https://www.hsinchuiot.org/core/share/realtimelatest/SmartPole' -o raw.json \
+               && python3 - <<'PY'
+          import json, datetime
+          data = json.load(open('raw.json', encoding='utf-8'))
+          assert isinstance(data, list) and data
+          out = {'fetchedAt': datetime.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z', 'data': data}
+          json.dump(out, open('smartpole.json', 'w', encoding='utf-8'), ensure_ascii=False)
+          PY
+            then
+              git add smartpole.json
+              git commit -q --amend --allow-empty -m "update $(date -u +%FT%TZ)" 2>/dev/null \
+                || git commit -q -m "update $(date -u +%FT%TZ)"
+              git push -q -f "https://x-access-token:${TOKEN}@github.com/${REPO}.git" data \
+                && echo "$(date -u +%T) 已更新" || echo "$(date -u +%T) 推送失敗"
+            else
+              echo "$(date -u +%T) 抓取失敗，下一輪再試"
+            fi
+            rm -f raw.json
+            sleep 120
+          done
+
+      - name: 觸發下一輪接力
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run fetch-smartpole.yml --repo "${{ github.repository }}" --ref main
