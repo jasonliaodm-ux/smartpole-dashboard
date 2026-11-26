@@ -1,0 +1,42 @@
+name: 抓取智慧桿空品資料
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-smartpole
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 下載 API
+        run: |
+          mkdir -p out
+          curl -fsS --retry 3 --max-time 30 \
+            -H 'Accept: application/json' \
+            'https://www.hsinchuiot.org/core/share/realtimelatest/SmartPole' -o out/raw.json
+          python3 - <<'PY'
+          import json, datetime
+          data = json.load(open('out/raw.json', encoding='utf-8'))
+          assert isinstance(data, list) and data, 'empty response'
+          out = {'fetchedAt': datetime.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z', 'data': data}
+          json.dump(out, open('out/smartpole.json', 'w', encoding='utf-8'), ensure_ascii=False)
+          PY
+          rm out/raw.json
+      - name: 推到 data 分支（只保留最新一筆，不累積歷史）
+        run: |
+          cd out
+          git init -q -b data
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add smartpole.json
+          git commit -q -m "update $(date -u +%FT%TZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data

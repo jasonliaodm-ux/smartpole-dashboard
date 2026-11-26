@@ -156,12 +156,14 @@ footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;fo
 {
 /* ===== 設定：部署時只需改這裡 ===== */
 const CONFIG = {
-  API_URL: 'https://www.hsinchuiot.org/core/share/realtimelatest/SmartPole',  // 若遇 CORS，改為自家代理路徑，例如 '/api/smartpole'
+  API_URL: 'https://www.hsinchuiot.org/core/share/realtimelatest/SmartPole',
+  // 直連被瀏覽器擋（CORS）時，改讀 GitHub Actions 每 5 分鐘抓下來的備份
+  CACHE_URL: 'https://raw.githubusercontent.com/jasonliaodm-ux/smartpole-dashboard/data/smartpole.json',
   HLS_URL: 'https://stream-hls.rogy360.live/BayfunPier/index.m3u8',
   DEFAULT_DEVICE: 'UIT953',
   CAMERA_NAME: 'BayfunPier',
   REFRESH_SEC: 60,
-  STALE_MIN: 10,
+  STALE_MIN: 20,
   DEVICE_NAMES: { /* 'UIT953': '東門城' */ }
 };
 
@@ -261,15 +263,28 @@ function choose(id){
 }
 $('devSel').addEventListener('change', e => choose(e.target.value));
 
+let directOK = true;
+async function getJSON(url){
+  const res = await fetch(url + (url.includes('?')?'&':'?') + '_=' + Date.now(), {cache:'no-store'});
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+async function fetchData(){
+  if (directOK) {
+    try { const d = await getJSON(CONFIG.API_URL); if (Array.isArray(d) && d.length) return d; }
+    catch (e) { directOK = false; console.info('[SmartPole] 直連失敗，改用備份資料', e); }
+  }
+  const c = await getJSON(CONFIG.CACHE_URL);
+  return Array.isArray(c) ? c : c.data;
+}
 async function load(){
   try {
-    const res = await fetch(CONFIG.API_URL + (CONFIG.API_URL.includes('?')?'&':'?') + '_=' + Date.now(), {cache:'no-store'});
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const data = await fetchData();
     if (!Array.isArray(data) || !data.length) throw new Error('empty');
     rows = data.filter(r => r && typeof r.Device === 'string').sort((a,b) => a.Device.localeCompare(b.Device));
     renderSelect(); renderMain(); renderDevs();
-    $('srcLine').textContent = `資料來源：新竹市物聯網平台 · 智慧桿感測器（每 ${CONFIG.REFRESH_SEC} 秒更新，最後取得 ${$('clkT').textContent}）`;
+    $('staleTag').textContent = '資料延遲';
+    $('srcLine').textContent = `資料來源：新竹市物聯網平台 · 智慧桿感測器（${directOK ? '即時直連' : '約每 5 分鐘同步'}，最後取得 ${$('clkT').textContent}）`;
   } catch (e) {
     console.warn('[SmartPole] 讀取失敗', e);
     if (!rows.length) { $('lvl').textContent = '暫無資料'; $('adv').textContent = '空品資料連線失敗，系統將自動重試。'; }
