@@ -255,7 +255,7 @@ let S = DEFAULTS();
 try { const v = JSON.parse(localStorage.getItem('sp-settings') || 'null'); if (v && typeof v === 'object') S = {...S, ...v, names: {...S.names, ...(v.names||{})}}; } catch(e) {}
 const saveS = () => { try { localStorage.setItem('sp-settings', JSON.stringify(S)); } catch(e) {} };
 const nameOf = id => (S.names[id] || '').trim();
-const label = id => nameOf(id) ? `${id} · ${nameOf(id)}` : id;
+const label = id => nameOf(id) || id;
 
 /* 刻度條 */
 function scale(boxId, labId, arr, short){
