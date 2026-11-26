@@ -76,14 +76,17 @@ select{height:40px;background:var(--bg);color:var(--ink);border:1px solid #2A456
 .btn.pri{background:var(--accent);border-color:var(--accent);color:#0B1420}
 .btn.ghost{border-color:transparent;color:var(--mute);font-weight:500}
 .dlist{display:flex;flex-direction:column;gap:8px}
-.drow{display:grid;grid-template-columns:auto 92px 92px minmax(0,1fr);align-items:center;gap:12px;background:var(--bg);border:1px solid transparent;border-radius:10px;padding:8px 12px}
+.drow{display:grid;grid-template-columns:auto 72px minmax(0,1.5fr) minmax(0,1fr);align-items:center;gap:12px;background:var(--bg);border:1px solid transparent;border-radius:10px;padding:8px 12px}
+.vals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.vals .vl{display:none;font:12px 'Noto Sans TC',sans-serif;color:var(--dim)}
 .drow.on{border-color:var(--accent);background:#17324A}
 .drow .id{font:14px var(--mono)}
 .drow .pv{font:14px var(--mono);display:flex;align-items:center;gap:6px;white-space:nowrap}
-.drow .pv i{width:8px;height:8px;border-radius:50%}
-.drow .pv.stale{color:var(--dim)}
+.drow .pv i{width:8px;height:8px;border-radius:50%;flex:none}
+.drow .vals.stale .pv{color:var(--dim)}
 .drow input[type=radio]{width:22px;height:22px;accent-color:#7FD8E6;margin:0}
-.dhead{display:grid;grid-template-columns:auto 92px 92px minmax(0,1fr);gap:12px;padding:0 12px;font-size:12px;color:var(--dim)}
+.dhead{display:grid;grid-template-columns:auto 72px minmax(0,1.5fr) minmax(0,1fr);gap:12px;padding:0 12px;font-size:12px;color:var(--dim)}
+.dhead .vals{gap:8px}
 .dhead span:first-child{width:22px}
 .set-foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
 .dev{min-height:44px;border:1px solid transparent;border-radius:8px;padding:6px 8px;background:var(--bg);color:var(--ink);font:13px var(--mono);display:flex;flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;text-align:left}
@@ -95,7 +98,7 @@ select{height:40px;background:var(--bg);color:var(--ink);border:1px solid #2A456
 .warn{display:none;font-size:13px;font-weight:700;color:#F2C94C;background:#3A3010;border-radius:999px;padding:3px 10px}
 .warn.show{display:inline-block}
 footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;font-size:13px;color:var(--dim);border-top:1px solid var(--line);padding-top:14px}
-@media(max-width:600px){.wrap{padding:16px 14px}.clock{text-align:left}.drow{grid-template-columns:auto minmax(0,1fr) auto;row-gap:8px}.drow input[type=text]{grid-column:1/-1}.dhead{display:none}.lvl{font-size:24px}}
+@media(max-width:600px){.wrap{padding:16px 14px}.clock{text-align:left}.drow{grid-template-columns:auto minmax(0,1fr);row-gap:10px}.drow .vals,.drow input[type=text]{grid-column:1/-1}.drow .vals{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:8px}.vals .vl{display:block}.drow .cell{display:flex;flex-direction:column;gap:2px}.dhead{display:none}.lvl{font-size:24px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -202,7 +205,7 @@ footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;fo
     <section class="card" style="display:flex;flex-direction:column;gap:12px;padding:20px">
       <h3>周邊感測桿</h3>
       <span class="hint">選擇主頁要顯示的感測桿，並可設定每支桿的顯示名稱（留空則只顯示編號）。</span>
-      <div class="dhead" aria-hidden="true"><span></span><span>編號</span><span>PM2.5</span><span>顯示名稱</span></div>
+      <div class="dhead" aria-hidden="true"><span></span><span>編號</span><span class="vals"><span>PM2.5 μg/m³</span><span>噪音 dB</span><span>溫度 °C</span><span>濕度 %</span></span><span>顯示名稱</span></div>
       <div class="dlist" id="dlist" role="radiogroup" aria-label="主頁顯示的感測桿"></div>
     </section>
 
@@ -320,7 +323,7 @@ function buildDevList(){
     rb.setAttribute('aria-label', '主頁顯示 ' + id);
     rb.addEventListener('change', () => { pick = id; markPick(); });
     const lab = document.createElement('label'); lab.className='id'; lab.htmlFor=rb.id; lab.textContent=id;
-    const pv = document.createElement('span'); pv.className='pv';
+    const pv = document.createElement('div'); pv.className='vals';
     const inp = document.createElement('input'); inp.type='text'; inp.maxLength=40; inp.value = S.names[id] || '';
     inp.placeholder='例如：東門城'; inp.setAttribute('aria-label', id + ' 的顯示名稱'); inp.dataset.id = id;
     row.append(rb, lab, pv, inp);
@@ -328,13 +331,26 @@ function buildDevList(){
   }));
   updateDevVals(); markPick();
 }
+const COLS = [
+  {k:'pm25', l:'PM2.5 μg/m³', lv:PM},
+  {k:'sound_avg', l:'噪音 dB', lv:DB},
+  {k:'溫度', l:'溫度 °C'},
+  {k:'濕度', l:'濕度 %'}
+];
 function updateDevVals(){
   for (const row of $('dlist').querySelectorAll('.drow')) {
-    const r = rows.find(x => x.Device === row.dataset.id), pv = row.querySelector('.pv');
-    const dot = document.createElement('i'), t = document.createElement('span');
-    if (r) { dot.style.background = lv(PM, Number(r.pm25)).c; t.textContent = fmt(Number(r.pm25)); pv.classList.toggle('stale', isStale(r)); }
-    else { dot.style.background = '#2A4560'; t.textContent = '--'; }
-    pv.replaceChildren(dot, t);
+    const r = rows.find(x => x.Device === row.dataset.id), box = row.querySelector('.vals');
+    box.classList.toggle('stale', !!r && isStale(r));
+    box.replaceChildren(...COLS.map(c => {
+      const cell = document.createElement('div'); cell.className = 'cell';
+      const vl = document.createElement('span'); vl.className = 'vl'; vl.textContent = c.l;
+      const pv = document.createElement('span'); pv.className = 'pv';
+      const v = r ? Number(r[c.k]) : NaN;
+      if (c.lv) { const dot = document.createElement('i'); dot.style.background = isFinite(v) ? lv(c.lv, v).c : '#2A4560'; pv.append(dot); }
+      const t = document.createElement('span'); t.textContent = fmt(v); pv.append(t);
+      cell.append(vl, pv);
+      return cell;
+    }));
   }
 }
 const markPick = () => $('dlist').querySelectorAll('.drow').forEach(r => r.classList.toggle('on', r.dataset.id === pick));
